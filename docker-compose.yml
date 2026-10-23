@@ -1,0 +1,74 @@
+services:
+  web:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [audit-net]
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=INFO --concurrency=1
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [audit-net]
+    restart: unless-stopped
+
+  beat:
+    build: .
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=INFO
+    env_file: .env
+    depends_on:
+      redis: { condition: service_healthy }
+      db: { condition: service_healthy }
+    networks: [audit-net]
+    restart: unless-stopped
+
+  demo-target:
+    build: .
+    command: uvicorn app.demo_target:app --host 0.0.0.0 --port 8080
+    networks: [audit-net]
+    restart: unless-stopped
+    # No host port is published; reachable only inside the compose network.
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-audit}
+      POSTGRES_USER: ${POSTGRES_USER:-audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-audit} -d ${POSTGRES_DB:-audit}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [audit-net]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [audit-net]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  audit-net:
+    internal: true

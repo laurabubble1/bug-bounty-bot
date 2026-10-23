@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Scopeguard · Audit Console</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2e;--line:#24314c;--muted:#9aa8c4;--text:#eef3ff;--accent:#74e0c1;--warn:#ffd27d}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#1a2941 0,transparent 42%),var(--bg);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif}
+    main{max-width:1120px;margin:auto;padding:36px 22px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:26px}.brand{font-size:22px;font-weight:750;letter-spacing:-.04em}.brand b{color:var(--accent)}.badge{border:1px solid #2d755f;border-radius:999px;padding:7px 12px;color:var(--accent);font-size:12px}
+    .intro{margin-bottom:24px}.intro h1{font-size:clamp(28px,5vw,42px);letter-spacing:-.05em;margin:0 0 8px}.intro p,.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:linear-gradient(145deg,#141d33,#10172a);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 18px 55px #0002}.card h2{font-size:16px;margin:0 0 16px}.wide{grid-column:1/-1}label{display:block;color:#b9c5dc;font-size:12px;margin:12px 0 6px}input,select{width:100%;border:1px solid #2b3958;border-radius:9px;background:#0b1222;color:var(--text);padding:11px 12px;font:inherit}input:focus{outline:2px solid #74e0c155;border-color:var(--accent)}button{border:0;border-radius:9px;padding:10px 15px;background:var(--accent);color:#082017;font-weight:700;cursor:pointer;margin-top:14px}button:disabled{opacity:.5;cursor:not-allowed}.inline{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12px}.inline input{width:auto}.result{margin-top:12px;color:var(--muted);font-size:13px;min-height:20px}.list{display:grid;gap:8px}.row{padding:11px 12px;background:#0b1222;border:1px solid var(--line);border-radius:9px;font-size:13px}.terminal{height:230px;overflow:auto;padding:13px;border-radius:10px;background:#080d18;border:1px solid #1c2942;font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;color:#c5d2eb}.log-info{color:#8de6c2}.log-warning{color:var(--warn)}.log-error{color:#ff8f9b}.notice{border-left:3px solid var(--warn);padding:9px 12px;background:#2c2516;color:#dfd2ad;border-radius:4px;font-size:12px;margin:0 0 18px}@media(max-width:760px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.top{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body><main>
+  <header class="top"><div class="brand">SCOPE<b>GUARD</b> <span class="muted">/ audit console</span></div><div id="workerBadge" class="badge">Checking worker…</div></header>
+  <section class="intro"><h1>Authorized testing, in scope.</h1><p>Queue bounded checks, follow worker logs, and review deduplicated observations.</p></section>
+  <p class="notice">Local demo environment. Only submit assets you own or are explicitly authorized to test. The worker is limited to exact hostnames in the server allowlist.</p>
+  <section class="grid">
+    <article class="card"><h2>01 · Register target</h2><form id="targetForm">
+      <label for="targetName">Program / target name</label><input id="targetName" value="Local reflection demo" required maxlength="120">
+      <label for="targetUrl">Base URL</label><input id="targetUrl" value="http://demo-target:8080/search" required>
+      <label class="inline"><input id="authorized" type="checkbox"> I confirm this target is explicitly authorized</label>
+      <button>Register target</button><div class="result" id="targetResult"></div>
+    </form></article>
+    <article class="card"><h2>02 · Queue bounded check</h2><form id="jobForm">
+      <label for="targetSelect">Authorized target</label><select id="targetSelect"><option value="">Load targets first</option></select>
+      <label for="parameters">Declared query parameter(s)</label><input id="parameters" value="q" placeholder="q, search" required>
+      <button id="jobButton">Queue reflection check</button><div class="result" id="jobResult"></div>
+    </form></article>
+    <article class="card"><h2>Registered targets</h2><div class="list" id="targets"><div class="muted">Loading…</div></div></article>
+    <article class="card"><h2>Recent findings</h2><div class="list" id="findings"><div class="muted">Loading…</div></div></article>
+    <article class="card wide"><h2>Live job log</h2><div class="terminal" id="logs">No active job. Queue a check to stream logs here.</div></article>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+function addRow(parent,text){const node=document.createElement('div');node.className='row';node.textContent=text;parent.append(node)}
+async function loadTargets(){const response=await fetch('/api/targets');const data=await response.json();$('targets').replaceChildren();$('targetSelect').replaceChildren();if(!data.length){$('targets').textContent='No targets registered yet.';$('targetSelect').add(new Option('Register a target first',''));return}for(const target of data){addRow($('targets'),`#${target.id} · ${target.name} · ${target.scope_authorized?'authorized':'pending'} · ${target.base_url}`);if(target.scope_authorized)$('targetSelect').add(new Option(`#${target.id} · ${target.name}`,target.id))}if(!$('targetSelect').options.length)$('targetSelect').add(new Option('No authorized targets',''))}
+async function loadFindings(){const response=await fetch('/api/findings');const data=await response.json();$('findings').replaceChildren();if(!data.length){$('findings').textContent='No findings recorded.';return}for(const item of data)addRow($('findings'),`${item.severity.toUpperCase()} · ${item.title} · ${item.evidence}`)}
+async function loadWorkers(){const response=await fetch('/api/workers');const data=await response.json();$('workerBadge').textContent=data.online?'Worker online':'Worker offline';$('workerBadge').style.color=data.online?'var(--accent)':'var(--warn)'}
+$('targetForm').addEventListener('submit',async event=>{event.preventDefault();$('targetResult').textContent='Registering…';try{const response=await fetch('/api/targets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('targetName').value,base_url:$('targetUrl').value,scope_authorized:$('authorized').checked})});const result=await response.json();if(!response.ok)throw Error(result.detail||'Registration failed');$('targetResult').textContent=`Registered target #${result.id}.`;await loadTargets()}catch(error){$('targetResult').textContent=error.message}});
+$('jobForm').addEventListener('submit',async event=>{event.preventDefault();const button=$('jobButton');button.disabled=true;$('jobResult').textContent='Queueing…';$('logs').textContent='';try{const parameters=$('parameters').value.split(',').map(item=>item.trim()).filter(Boolean);const response=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target_id:Number($('targetSelect').value),plugin:'parameter-reflection',parameters})});const result=await response.json();if(!response.ok)throw Error(result.detail||'Could not queue job');$('jobResult').textContent=`Job #${result.id} · ${result.status}`;const stream=new EventSource(`/api/jobs/${result.id}/events`);stream.onmessage=event=>{const item=JSON.parse(event.data);const line=document.createElement('div');line.className=`log-${item.level.toLowerCase()}`;line.textContent=`[${item.level}] ${item.message}`;$('logs').append(line);$('logs').scrollTop=$('logs').scrollHeight};stream.addEventListener('done',()=>{stream.close();loadFindings()});stream.onerror=()=>{stream.close()}}catch(error){$('jobResult').textContent=error.message}finally{button.disabled=false}});
+loadTargets();loadFindings();loadWorkers();setInterval(loadWorkers,10000);
+</script></body></html>

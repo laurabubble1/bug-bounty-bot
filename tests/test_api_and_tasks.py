@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -107,8 +106,8 @@ async def test_worker_persists_plugin_finding_and_deduplicates(
             )]
 
     monkeypatch.setattr(tasks, "get_plugin", lambda _key: FakePlugin())
-    await asyncio.to_thread(asyncio.run, tasks._run_scan(job_id))
-    await asyncio.to_thread(asyncio.run, tasks._run_scan(job_id))
+    await tasks._run_scan(job_id)
+    await tasks._run_scan(job_id)
 
     async with SessionLocal() as session:
         job = await session.get(ScanJob, job_id)

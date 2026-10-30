@@ -3,7 +3,7 @@ import pytest
 from app import campaign_agents, tasks
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models import Campaign, CampaignAgentRun, CampaignWebRun
+from app.models import Campaign, CampaignAgentRun, CampaignWebRun, JobStatus, SourceRun
 
 
 async def test_structured_openai_request_uses_json_schema_without_environment_proxy(
@@ -49,6 +49,66 @@ async def test_structured_openai_request_uses_json_schema_without_environment_pr
     request_body = captured["request"]["json"]
     assert request_body["store"] is False
     assert request_body["text"]["format"]["type"] == "json_schema"
+
+
+async def test_campaign_agents_require_a_local_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        await campaign_agents._structured_response("test", {}, "instructions", {})
+
+
+async def test_campaign_planner_bounds_policy_and_asset_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_response(name, schema, instructions, payload):
+        captured.update({
+            "name": name, "schema": schema, "instructions": instructions, "payload": payload,
+        })
+        return {"app_action": "skip", "source_action": "skip"}
+
+    monkeypatch.setattr(campaign_agents, "_structured_response", fake_response)
+    result = await campaign_agents.plan_campaign_agents(
+        campaign_name="N" * 250,
+        program_url="https://hackerone.com/" + "x" * 2100,
+        policy_text="P" * 31000,
+        scope_assets=[{"identifier": str(index)} for index in range(510)],
+        plugin_catalog=[{"key": "security-headers"}],
+    )
+
+    assert result["app_action"] == "skip"
+    assert captured["name"] == "campaign_agents_plan"
+    assert len(captured["payload"]["campaign_name"]) == 200
+    assert len(captured["payload"]["program_url"]) == 2048
+    assert len(captured["payload"]["policy_text"]) == 30000
+    assert len(captured["payload"]["approved_scope_assets"]) == 500
+    assert "never invent a host" in captured["instructions"]
+
+
+async def test_source_review_payload_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    async def fake_response(name, schema, instructions, payload):
+        captured.update({"name": name, "schema": schema, "instructions": instructions, "payload": payload})
+        return {"summary": "reviewed", "reviews": []}
+
+    monkeypatch.setattr(campaign_agents, "_structured_response", fake_response)
+    result = await campaign_agents.review_source_candidates(
+        campaign_name="Example",
+        policy_text="current rules",
+        repository_url="https://github.com/example/project.git",
+        commit_sha="a" * 40,
+        selected_programs=["python-risk-pattern-review"],
+        findings=[{"line": index} for index in range(120)],
+        excerpts=[{"path": str(index)} for index in range(12)],
+    )
+
+    assert result["summary"] == "reviewed"
+    assert captured["name"] == "source_review_candidates"
+    assert len(captured["payload"]["static_findings"]) == 100
+    assert len(captured["payload"]["secret_redacted_source_excerpts"]) == 10
+    assert "untrusted data" in captured["instructions"]
 
 
 async def test_campaign_agent_run_pins_source_and_queues_only_approved_app_checks(
@@ -141,3 +201,78 @@ async def test_campaign_agent_run_pins_source_and_queues_only_approved_app_check
         assert web_run is not None and web_run.target_url == "https://example.com/"
         assert web_run.selected_plugins == ["security-headers"]
         assert app_queue == [web_run.id]
+
+
+async def test_campaign_web_worker_runs_approved_plugins_and_records_findings(
+    client, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with SessionLocal() as session:
+        campaign = Campaign(
+            provider="HackerOne", external_id="web-task-test", name="Web Task Test",
+            program_url="https://hackerone.com/web-task-test",
+            scope_assets=[{"identifier": "https://example.test/", "type": "URL"}],
+            policy_text="Approved GET checks.", scope_complete=True, scope_approved=True,
+        )
+        session.add(campaign)
+        await session.flush()
+        web_run = CampaignWebRun(
+            campaign_id=campaign.id,
+            target_url="https://example.test/",
+            selected_plugins=["security-headers", "parameter-reflection"],
+            parameters=["q"],
+        )
+        session.add(web_run)
+        await session.commit()
+        await session.refresh(web_run)
+        run_id = web_run.id
+
+    seen: list[tuple[str, dict]] = []
+
+    class FakePlugin:
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+        async def scan(self, *, base_url, options, log):
+            seen.append((base_url, options))
+            await log("INFO", "checked")
+            return []
+
+    monkeypatch.setattr(tasks, "get_plugin", lambda key: FakePlugin(key))
+    await tasks._run_campaign_web_scan(run_id)
+
+    async with SessionLocal() as session:
+        result = await session.get(CampaignWebRun, run_id)
+        assert result is not None
+        assert result.status == JobStatus.completed.value
+        assert result.findings == []
+    assert len(seen) == 2
+    assert seen[0][1]["approved_hosts"] == ["example.test"]
+    assert seen[1][1]["parameters"] == ["q"]
+
+
+async def test_source_worker_rejects_withdrawn_scope_and_records_failure(client) -> None:
+    async with SessionLocal() as session:
+        campaign = Campaign(
+            provider="HackerOne", external_id="source-task-test", name="Source Task Test",
+            program_url="https://hackerone.com/source-task-test",
+            scope_assets=[], policy_text="", scope_complete=True, scope_approved=False,
+        )
+        session.add(campaign)
+        await session.flush()
+        source_run = SourceRun(
+            campaign_id=campaign.id,
+            repository_url="https://github.com/example/project.git",
+            commit_sha="a" * 40,
+        )
+        session.add(source_run)
+        await session.commit()
+        await session.refresh(source_run)
+        run_id = source_run.id
+
+    await tasks._run_source_scan(run_id)
+
+    async with SessionLocal() as session:
+        result = await session.get(SourceRun, run_id)
+        assert result is not None
+        assert result.status == JobStatus.failed.value
+        assert "approval" in result.error

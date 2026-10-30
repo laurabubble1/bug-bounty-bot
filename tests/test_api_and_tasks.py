@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -71,9 +72,11 @@ async def test_api_scope_jobs_findings_and_sse(
     logs = await client.get(f"/api/jobs/{job_id}/logs")
     findings = await client.get("/api/findings")
     events = await client.get(f"/api/jobs/{job_id}/events")
+    report = await client.get(f"/api/findings/{findings.json()[0]['id']}/report")
     assert logs.status_code == 200 and logs.json()[0]["message"] == "test log"
     assert findings.status_code == 200 and findings.json()[0]["title"] == "Reflected marker"
     assert "test log" in events.text and "event: done" in events.text
+    assert report.status_code == 200 and "Unconfirmed security finding" in report.text
 
 
 async def test_worker_persists_plugin_finding_and_deduplicates(
@@ -185,6 +188,9 @@ async def test_campaign_scope_approval_and_pinned_source_dispatch(
     assert queued.status_code == 202
     assert queued.json()["status"] == "queued"
     assert calls and calls[0][1]["queue"] == "source"
+    assert (await client.get("/api/source-runs")).json()[0]["id"] == queued.json()["id"]
+    source_report = await client.get(f"/api/source-runs/{queued.json()['id']}/report")
+    assert source_report.status_code == 200 and "manual review required" in source_report.text
 
 
 async def test_campaign_web_dispatch_requires_approved_exact_web_scope(
@@ -215,6 +221,9 @@ async def test_campaign_web_dispatch_requires_approved_exact_web_scope(
     assert queued.status_code == 202
     assert queued.json()["selected_plugins"] == ["security-headers", "parameter-reflection"]
     assert calls == [queued.json()["id"]]
+    assert (await client.get("/api/campaign-web-runs")).json()[0]["id"] == queued.json()["id"]
+    web_report = await client.get(f"/api/campaign-web-runs/{queued.json()['id']}/report")
+    assert web_report.status_code == 200 and "manual review required" in web_report.text
 
 
 async def test_campaign_agents_require_approved_policy_and_queue_both_reviewers(
@@ -259,3 +268,35 @@ async def test_campaign_agents_require_approved_policy_and_queue_both_reviewers(
     })
     assert refreshed.status_code == 200
     assert refreshed.json()["scope_approved"] is False
+
+
+async def test_program_catalog_opportunity_lookup_and_worker_queue_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_discover(search: str):
+        return [{"provider": "HackerOne", "search": search}]
+
+    class Inspector:
+        def ping(self):
+            return {"worker@example": {"ok": "pong"}}
+
+        def active_queues(self):
+            return {"worker@example": [{"name": "agent"}, {"name": "source"}]}
+
+    monkeypatch.setattr(api, "discover_opportunities", fake_discover)
+    monkeypatch.setattr(api, "celery_app", SimpleNamespace(
+        control=SimpleNamespace(inspect=lambda **_kwargs: Inspector())
+    ))
+
+    async def inline_to_thread(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(api.asyncio, "to_thread", inline_to_thread)
+
+    assert (await api.test_programs())["source"]
+    assert (await api.plugins())
+    assert await api.opportunities("needle") == {"sources": [{"provider": "HackerOne", "search": "needle"}]}
+    workers = await api.worker_status()
+    assert workers["online"] is True
+    assert workers["source_queue_online"] is True
+    assert workers["agent_queue_online"] is True

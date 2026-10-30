@@ -215,3 +215,47 @@ async def test_campaign_web_dispatch_requires_approved_exact_web_scope(
     assert queued.status_code == 202
     assert queued.json()["selected_plugins"] == ["security-headers", "parameter-reflection"]
     assert calls == [queued.json()["id"]]
+
+
+async def test_campaign_agents_require_approved_policy_and_queue_both_reviewers(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(
+        api.run_campaign_agents,
+        "apply_async",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    created = await client.post("/api/campaigns", json={
+        "provider": "HackerOne",
+        "external_id": "agent-example",
+        "name": "Agent Example",
+        "program_url": "https://hackerone.com/agent-example",
+        "scope_assets": [{"identifier": "github.com/example/agent-example", "type": "SOURCE_CODE"}],
+        "policy_text": "Review this explicitly scoped source repository.",
+        "scope_complete": True,
+    })
+    assert created.status_code == 201
+    campaign_id = created.json()["id"]
+
+    blocked = await client.post(f"/api/campaigns/{campaign_id}/agents")
+    assert blocked.status_code == 403
+
+    await client.post(f"/api/campaigns/{campaign_id}/approve-scope")
+    queued = await client.post(f"/api/campaigns/{campaign_id}/agents")
+    assert queued.status_code == 202
+    assert queued.json()["status"] == "queued"
+    assert calls == [((queued.json()["id"],), {"queue": "agent"})]
+
+    report = await client.get(f"/api/campaign-agent-runs/{queued.json()['id']}/report")
+    assert report.status_code == 200
+    assert "Unconfirmed campaign review candidates" in report.text
+    assert "submit manually" in report.text
+
+    refreshed = await client.put(f"/api/campaigns/{campaign_id}/scope", json={
+        "scope_assets": created.json()["scope_assets"],
+        "policy_text": "Updated policy requires another review.",
+        "scope_complete": True,
+    })
+    assert refreshed.status_code == 200
+    assert refreshed.json()["scope_approved"] is False

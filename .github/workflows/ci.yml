@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -23,6 +27,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
+            requirements-source.txt
             requirements-dev.txt
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
@@ -75,6 +80,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
+            requirements-source.txt
             requirements-dev.txt
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
@@ -82,10 +88,25 @@ jobs:
         run: pytest --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=70
 
   docker-build:
-    name: Build production image
+    name: Validate Compose and build app and agent images
     runs-on: ubuntu-latest
+    env:
+      # Compose requires a non-empty value to render the optional agent service.
+      # This placeholder is used only for config validation; it is never sent to a service.
+      OPENAI_API_KEY: ci-validation-placeholder
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-      - name: Build container image
+      - name: Validate the full campaign-agent Compose setup
+        run: >-
+          docker compose
+          -f docker-compose.yml
+          -f docker-compose.discovery.yml
+          -f docker-compose.source.yml
+          -f docker-compose.webscan.yml
+          -f docker-compose.agents.yml
+          config --quiet
+      - name: Build the web and API image
         run: docker build --tag scopeguard:ci .
+      - name: Build the isolated source and AI agent image
+        run: docker build --file Dockerfile.source --tag scopeguard-agent:ci .

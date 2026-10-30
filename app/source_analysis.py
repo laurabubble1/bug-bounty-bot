@@ -346,11 +346,11 @@ def _source_review_context(root: Path, findings: list[dict], max_chars: int = 30
             locations.setdefault(path, set()).add(line)
 
     if len(locations) < 10:
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.is_symlink() or ".git" in path.parts:
+        for candidate_path in sorted(root.rglob("*")):
+            if not candidate_path.is_file() or candidate_path.is_symlink() or ".git" in candidate_path.parts:
                 continue
-            relative = path.relative_to(root).as_posix()
-            if path.suffix.lower() not in _SOURCE_EXTENSIONS and path.suffix.lower() not in {".php", ".sql"}:
+            relative = candidate_path.relative_to(root).as_posix()
+            if candidate_path.suffix.lower() not in _SOURCE_EXTENSIONS and candidate_path.suffix.lower() not in {".php", ".sql"}:
                 continue
             if any(word in relative.casefold() for word in (
                 "auth", "permission", "session", "login", "oauth", "token", "query", "sql",

@@ -245,7 +245,7 @@ async def test_campaign_agents_require_approved_policy_and_queue_both_reviewers(
     queued = await client.post(f"/api/campaigns/{campaign_id}/agents")
     assert queued.status_code == 202
     assert queued.json()["status"] == "queued"
-    assert calls == [((queued.json()["id"],), {"queue": "agent"})]
+    assert calls == [((), {"args": [queued.json()["id"]], "queue": "agent"})]
 
     report = await client.get(f"/api/campaign-agent-runs/{queued.json()['id']}/report")
     assert report.status_code == 200

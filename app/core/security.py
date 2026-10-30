@@ -11,7 +11,7 @@ class ScopeViolation(ValueError):
     """Raised when a URL is outside the explicitly configured audit scope."""
 
 
-def validate_target_url(url: str) -> str:
+def validate_target_url(url: str, *, additional_allowed_hosts: set[str] | None = None) -> str:
     """Require an exact allowlisted hostname and reject unsafe URL forms/IPs."""
     try:
         parsed = urlsplit(url)
@@ -24,7 +24,8 @@ def validate_target_url(url: str) -> str:
         raise ScopeViolation("Target must be an absolute HTTP(S) URL")
     if parsed.username or parsed.password or parsed.fragment:
         raise ScopeViolation("Credentials and URL fragments are not permitted")
-    if hostname not in settings.allowed_hosts:
+    campaign_hosts = {host.lower().rstrip(".") for host in (additional_allowed_hosts or set())}
+    if hostname not in settings.allowed_hosts and hostname not in campaign_hosts:
         raise ScopeViolation("Hostname is not in AUTHORIZED_HOSTS")
     if port not in (None, 80, 443, 8080, 8443):
         raise ScopeViolation("Port is not permitted")

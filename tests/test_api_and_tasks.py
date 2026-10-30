@@ -144,3 +144,74 @@ async def test_retention_deletes_expired_logs_and_finished_jobs(
     result = await tasks._cleanup_retained_data()
     assert result["logs_deleted"] == 1
     assert result["jobs_deleted"] == 1
+
+
+async def test_campaign_scope_approval_and_pinned_source_dispatch(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list, dict]] = []
+    monkeypatch.setattr(api.run_source_scan, "apply_async", lambda *args, **kwargs: calls.append((args, kwargs)))
+    payload = {
+        "provider": "HackerOne",
+        "external_id": "example-program",
+        "name": "Example Program",
+        "program_url": "https://hackerone.com/example-program",
+        "scope_assets": [{"identifier": "github.com/example/repository", "type": "SOURCE_CODE"}],
+        "scope_complete": True,
+    }
+    created = await client.post("/api/campaigns", json=payload)
+    assert created.status_code == 201
+    campaign_id = created.json()["id"]
+
+    sha = "a" * 40
+    blocked = await client.post(f"/api/campaigns/{campaign_id}/source-runs", json={
+        "repository_url": "https://github.com/example/repository",
+        "commit_sha": sha,
+    })
+    assert blocked.status_code == 403
+
+    approved = await client.post(f"/api/campaigns/{campaign_id}/approve-scope")
+    assert approved.status_code == 200 and approved.json()["scope_approved"] is True
+    out_of_scope = await client.post(f"/api/campaigns/{campaign_id}/source-runs", json={
+        "repository_url": "https://github.com/other/repository",
+        "commit_sha": sha,
+    })
+    assert out_of_scope.status_code == 403
+
+    queued = await client.post(f"/api/campaigns/{campaign_id}/source-runs", json={
+        "repository_url": "https://github.com/example/repository",
+        "commit_sha": sha,
+    })
+    assert queued.status_code == 202
+    assert queued.json()["status"] == "queued"
+    assert calls and calls[0][1]["queue"] == "source"
+
+
+async def test_campaign_web_dispatch_requires_approved_exact_web_scope(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(api.run_campaign_web_scan, "delay", lambda run_id: calls.append(run_id))
+    created = await client.post("/api/campaigns", json={
+        "provider": "HackerOne",
+        "external_id": "web-example",
+        "name": "Web Example",
+        "program_url": "https://hackerone.com/web-example",
+        "scope_assets": [{"identifier": "https://example.com/", "type": "URL"}],
+        "scope_complete": True,
+    })
+    campaign_id = created.json()["id"]
+    await client.post(f"/api/campaigns/{campaign_id}/approve-scope")
+
+    blocked = await client.post(f"/api/campaigns/{campaign_id}/web-runs", json={
+        "target_url": "https://outside.example/",
+    })
+    assert blocked.status_code == 403
+
+    queued = await client.post(f"/api/campaigns/{campaign_id}/web-runs", json={
+        "target_url": "https://example.com/",
+        "parameters": ["q"],
+    })
+    assert queued.status_code == 202
+    assert queued.json()["selected_plugins"] == ["security-headers", "parameter-reflection"]
+    assert calls == [queued.json()["id"]]

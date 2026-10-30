@@ -72,6 +72,15 @@ class Finding(Base):
     evidence: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     job: Mapped[ScanJob] = relationship(back_populates="findings")
+    target: Mapped[Target] = relationship()
+
+    @property
+    def target_name(self) -> str:
+        return self.target.name
+
+    @property
+    def target_url(self) -> str:
+        return self.target.base_url
 
 
 class LogEntry(Base):
@@ -83,3 +92,83 @@ class LogEntry(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     job: Mapped[ScanJob] = relationship(back_populates="logs")
+
+
+class Campaign(Base):
+    """A researcher-selected bounty campaign with a snapshot of its published scope."""
+
+    __tablename__ = "campaigns"
+    __table_args__ = (UniqueConstraint("provider", "external_id", name="uq_campaign_provider_external_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    program_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    scope_assets: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    policy_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    scope_complete: Mapped[bool] = mapped_column(default=False, nullable=False)
+    scope_approved: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SourceRun(Base):
+    """Static analysis run against one in-scope repository commit."""
+
+    __tablename__ = "source_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    repository_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    commit_sha: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default=JobStatus.queued.value, index=True)
+    selected_programs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    files_scanned: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    findings: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CampaignWebRun(Base):
+    """Bounded HTTP checks dispatched from one approved campaign asset."""
+
+    __tablename__ = "campaign_web_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    target_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    parameters: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    selected_plugins: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default=JobStatus.queued.value, index=True)
+    findings: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CampaignAgentRun(Base):
+    """Two bounded AI agents planned for one approved campaign."""
+
+    __tablename__ = "campaign_agent_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(24), default=JobStatus.queued.value, index=True)
+    campaign_agent_status: Mapped[str] = mapped_column(String(24), default=JobStatus.queued.value)
+    source_agent_status: Mapped[str] = mapped_column(String(24), default=JobStatus.queued.value)
+    policy_text: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_assets: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    campaign_plan: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    source_plan: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    web_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repository_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    selected_programs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    files_scanned: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_findings: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    ai_source_reviews: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

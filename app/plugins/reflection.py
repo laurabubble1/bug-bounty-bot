@@ -18,7 +18,10 @@ class ParameterReflectionPlugin(BaseScannerPlugin):
     description = "Checks declared query parameters using one inert marker per parameter."
 
     async def scan(self, *, base_url: str, options: dict, log: LogCallback) -> list[PluginFinding]:
-        validate_target_url(base_url)
+        validate_target_url(
+            base_url,
+            additional_allowed_hosts=set(options.get("approved_hosts", [])),
+        )
         parameters = options.get("parameters", [])
         if not isinstance(parameters, list) or not 1 <= len(parameters) <= settings.max_requests_per_job:
             raise ValueError(f"Provide between 1 and {settings.max_requests_per_job} query parameter names")

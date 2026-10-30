@@ -1,0 +1,12 @@
+# Explicitly enables campaign-authorized app checks against public HTTPS assets.
+# Application and worker scope checks remain required; this is not a network firewall.
+services:
+  worker:
+    networks:
+      audit-net: {}
+      web-scan-egress:
+        gw_priority: 1
+
+networks:
+  web-scan-egress:
+    driver: bridge

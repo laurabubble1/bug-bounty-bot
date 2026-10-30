@@ -11,6 +11,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    task_routes={"app.tasks.run_source_scan": {"queue": "source"}},
     beat_schedule={
         "daily-data-retention": {
             "task": "app.tasks.cleanup_retained_data",

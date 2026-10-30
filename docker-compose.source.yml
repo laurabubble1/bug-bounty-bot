@@ -1,0 +1,32 @@
+# Optional source-analysis worker. It fetches only pinned public GitHub commits,
+# runs static checks without executing project code, and has a restricted runtime.
+services:
+  source-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.source
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://audit:change-this-local-password@db:5432/audit}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-14}
+      JOB_RETENTION_DAYS: ${JOB_RETENTION_DAYS:-30}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks:
+      audit-net: {}
+      source-egress:
+        gw_priority: 1
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1536m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=500m,mode=1777
+    restart: unless-stopped
+
+networks:
+  source-egress:
+    driver: bridge

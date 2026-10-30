@@ -2,7 +2,20 @@ services:
   web:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://audit:change-this-local-password@db:5432/audit}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AUTHORIZED_HOSTS: ${AUTHORIZED_HOSTS:-demo-target}
+      DEMO_HOST: ${DEMO_HOST:-demo-target}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-14}
+      JOB_RETENTION_DAYS: ${JOB_RETENTION_DAYS:-30}
+      MAX_REQUESTS_PER_JOB: ${MAX_REQUESTS_PER_JOB:-3}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-5}
+      REQUEST_INTERVAL_SECONDS: ${REQUEST_INTERVAL_SECONDS:-1.0}
+      HACKERONE_API_USERNAME: ${HACKERONE_API_USERNAME:-}
+      HACKERONE_API_TOKEN: ${HACKERONE_API_TOKEN:-}
+      BUGCROWD_API_USERNAME: ${BUGCROWD_API_USERNAME:-}
+      BUGCROWD_API_TOKEN: ${BUGCROWD_API_TOKEN:-}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -14,7 +27,16 @@ services:
   worker:
     build: .
     command: celery -A app.core.celery_app.celery_app worker --loglevel=INFO --concurrency=1
-    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://audit:change-this-local-password@db:5432/audit}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AUTHORIZED_HOSTS: ${AUTHORIZED_HOSTS:-demo-target}
+      DEMO_HOST: ${DEMO_HOST:-demo-target}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-14}
+      JOB_RETENTION_DAYS: ${JOB_RETENTION_DAYS:-30}
+      MAX_REQUESTS_PER_JOB: ${MAX_REQUESTS_PER_JOB:-3}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-5}
+      REQUEST_INTERVAL_SECONDS: ${REQUEST_INTERVAL_SECONDS:-1.0}
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -24,7 +46,11 @@ services:
   beat:
     build: .
     command: celery -A app.core.celery_app.celery_app beat --loglevel=INFO
-    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://audit:change-this-local-password@db:5432/audit}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-14}
+      JOB_RETENTION_DAYS: ${JOB_RETENTION_DAYS:-30}
     depends_on:
       redis: { condition: service_healthy }
       db: { condition: service_healthy }
@@ -71,4 +97,6 @@ volumes:
 
 networks:
   audit-net:
-    internal: true
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

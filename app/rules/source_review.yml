@@ -1,0 +1,62 @@
+rules:
+  - id: js-dynamic-evaluation
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Dynamic code evaluation. Review whether data can be controlled by an untrusted user.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: js-shell-command
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: A child process command API is used. Review whether untrusted data can affect the command.
+    pattern-either:
+      - pattern: $CHILD.exec($COMMAND, ...)
+      - pattern: $CHILD.execSync($COMMAND, ...)
+
+  - id: js-tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS certificate verification is disabled. Review whether this permits a man-in-the-middle attack.
+    pattern: |
+      { ..., rejectUnauthorized: false, ... }
+
+  - id: go-tls-verification-disabled
+    languages: [go]
+    severity: ERROR
+    message: TLS certificate verification is disabled in a tls.Config.
+    pattern: |
+      &tls.Config{..., InsecureSkipVerify: true, ...}
+
+  - id: java-process-execution
+    languages: [java]
+    severity: WARNING
+    message: A process execution API is used. Review whether untrusted data can affect the command.
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec($COMMAND)
+      - pattern: new ProcessBuilder(...)
+
+  - id: java-native-deserialization
+    languages: [java]
+    severity: WARNING
+    message: Java native deserialization. Review whether the serialized input can be controlled by an untrusted user.
+    pattern: new ObjectInputStream(...).readObject()
+
+  - id: php-dangerous-deserialization
+    languages: [php]
+    severity: WARNING
+    message: PHP unserialize is used. Review whether the serialized input can be controlled by an untrusted user.
+    pattern: unserialize($DATA, ...)
+
+  - id: ruby-dangerous-deserialization
+    languages: [ruby]
+    severity: WARNING
+    message: Ruby Marshal.load is used. Review whether the serialized input can be controlled by an untrusted user.
+    pattern: Marshal.load($DATA)
+
+  - id: csharp-binary-deserialization
+    languages: [csharp]
+    severity: WARNING
+    message: BinaryFormatter deserialization is used. Review whether the serialized input can be controlled by an untrusted user.
+    pattern: $FORMATTER.Deserialize($DATA)

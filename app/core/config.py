@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     max_requests_per_job: int = 3
     request_timeout_seconds: float = 5.0
     request_interval_seconds: float = 1.0
+    hackerone_api_username: str = ""
+    hackerone_api_token: str = ""
+    bugcrowd_api_username: str = ""
+    bugcrowd_api_token: str = ""
+    openai_api_key: str = ""
+    openai_model: str = "gpt-6-luna"
 
     @property
     def allowed_hosts(self) -> set[str]:

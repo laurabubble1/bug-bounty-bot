@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text
 
 from app.api import router
 from app.core.database import engine
@@ -15,6 +16,11 @@ async def lifespan(_: FastAPI):
     # Starter-only schema bootstrap. Use Alembic migrations for production.
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        campaign_columns = await connection.run_sync(
+            lambda sync_connection: {column["name"] for column in inspect(sync_connection).get_columns("campaigns")}
+        )
+        if "policy_text" not in campaign_columns:
+            await connection.execute(text("ALTER TABLE campaigns ADD COLUMN policy_text TEXT NOT NULL DEFAULT ''"))
     yield
     await engine.dispose()
 

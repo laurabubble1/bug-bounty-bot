@@ -1,8 +1,10 @@
 from app.plugins.base import BaseScannerPlugin
 from app.plugins.reflection import ParameterReflectionPlugin
+from app.plugins.security_headers import SecurityHeadersPlugin
 
 _PLUGINS: dict[str, BaseScannerPlugin] = {
     ParameterReflectionPlugin.key: ParameterReflectionPlugin(),
+    SecurityHeadersPlugin.key: SecurityHeadersPlugin(),
 }
 
 

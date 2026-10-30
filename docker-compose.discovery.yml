@@ -1,0 +1,12 @@
+# Opt-in outbound access for the API service to query official platform APIs.
+# The scanning worker remains on the isolated audit network.
+services:
+  web:
+    networks:
+      audit-net: {}
+      discovery-egress:
+        gw_priority: 1
+
+networks:
+  discovery-egress:
+    driver: bridge
